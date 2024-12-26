@@ -1,5 +1,5 @@
 # chaves_final
-chave 1: 33 B3 7A 12
-chave 2: 33 B3 7A 12
-chave 3: 33 B3 7A 12
-chave 4: 33 B3 7A 12
+nome1 - Fulano = chave 1: 33 B3 7A 12
+nome2 - Ciclano = chave 2: 33 B3 7A 12
+nome3 - Beltrano = chave 1: 33 B3 7A 12
+nome4 - Joao = chave 1: 33 B3 7A 12
