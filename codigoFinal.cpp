@@ -34,10 +34,10 @@ const unsigned long interval = 60 * 1000; // 1 minuto em milisegundos
 unsigned long MillisAnterior = 0;
 
 //- Definindo configurações de wifi e do ADAFRUIT
-const char* ssid = "NPITI-IoT";
-const char* password ="NPITI-IoT";
-#define IO_USERNAME  "Pedro_IoT"
-#define IO_KEY       "chave adafruit.io"
+const char* ssid = "SEU SSID";
+const char* password = "SUA SENHA";
+#define IO_USERNAME  "SEU USERNAME"
+#define IO_KEY       "SUA CHAVE"
 
 const char* mqttserver = "io.adafruit.com";
 const int mqttport = 1883;
@@ -52,7 +52,7 @@ char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
 //- Definindo configurações do servidor NTP
-const char* ntpServer = "north-america.pool.ntp.org";
+const char* ntpServer = "time.google.com";
 const long gmtOffset_sec = -10800;
 const int  daylightOffset_sec = 0;
 
@@ -78,7 +78,7 @@ void conecta_wifi(){
 }
 
 //Função que pega a hora no servidor NTP
-void printLocalTime(String nome){
+void printLocalTime(String frase){
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     Serial.println("Failed to obtain time");
@@ -89,8 +89,10 @@ void printLocalTime(String nome){
       Serial.println("Erro ao abrir arquivo!");
     }
     else {
-      rFile.print(nome + "Entrou!");
-      rFile.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+      char tempo[64];
+      strftime(tempo, sizeof(tempo), "%Y-%m-%d %H:%M:%S", &timeinfo);
+      String entrada = frase + " " + tempo;
+      rFile.println(entrada);
     }
     rFile.close();
   
@@ -148,12 +150,14 @@ String readFile(String path) {
     Serial.print("----------Lendo arquivo ");
     Serial.print(path);
     Serial.println("  ---------");
+    String conteudo = "";
     while (rFile.available()) {
       String linha = rFile.readStringUntil('\n');
+      conteudo += linha + "\n";
       Serial.print(linha);
     }
     rFile.close();
-    return s;
+    return conteudo;
   }
 }
 
@@ -301,6 +305,7 @@ void get_mac(){
 void setup(){
   Serial.begin(9600);
   openFS();
+  SPIFFS.format();
 //- Depois definir os pinos dos leds como outputs assim como os pinos dos motores
   pinMode(LED_WIFI, OUTPUT);
   pinMode(LED_ADA, OUTPUT);
@@ -314,8 +319,9 @@ void setup(){
 //- Chama a função que conecta no dashboard
   client.setServer(mqttserver, 1883); // Publicar
   client.setCallback(callback); // Receber mensagem
+// Configura o servidor ntp
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 //- Mandar a lista de logs atuais ao dashboard
- 
   logs = readFile("/logs.txt");
   client.publish("Pedro_IoT/feeds/logs", logs.c_str());
 // obtendo o endereço mac
@@ -326,52 +332,57 @@ url = "https://raw.githubusercontent.com/Pedro-IoT/chaves_final/refs/heads/main/
 }
 
 void loop(){
-  unsigned long currentMillis = millis();
+  unsigned long currentMillis = millis(); // Guarda o tempo real de execução
   unsigned long millisAtual = millis();
+// Checa se o WiFi está conectado
   if(WiFi.status() == WL_CONNECTED){
-    digitalWrite(LED_WIFI, HIGH);
-    if(digitalRead(BOTAO) == HIGH){
+    digitalWrite(LED_WIFI, HIGH);// Se estiver liga o led de controle
+    if(digitalRead(BOTAO) == HIGH){// Se o botão for apertado atualiza as chaves
       requisicao_HTTP();
     }
+    // Atualiza automaticamente as chaves a cada 30 min
     else if(currentMillis - previousMillis >= intervalo){
       previousMillis = currentMillis;
       requisicao_HTTP();
     }
-    if (!client.connected()) {
-      digitalWrite(LED_ADA, LOW);
-      reconnect();
+    if (!client.connected()) {// Checa se não está conectado ao MQQT 
+      digitalWrite(LED_ADA, LOW);// Se não estiver desliga o led de controle MQQT
+      reconnect();// Se reconecta
     }
-    digitalWrite(LED_ADA, HIGH);
+    digitalWrite(LED_ADA, HIGH);// Se estiver conectado acende o led de controle MQQT
 
+// Atualiza os logs de entrada e saída a cada 1 minuto
     if(millisAtual - MillisAnterior >= interval){
       MillisAnterior = millisAtual;
       logs = readFile("/logs.txt");
-      client.publish("Pedro_IoT/feeds/logs", logs.c_str());
+      client.publish("Pedro_IoT/feeds/logs", logs.c_str());// Manda os logs para o MQQT
       Serial.println(logs);
     }
-    client.loop();
+    client.loop();// Mantém a conexão MQQT e atualiza por mensagens novas
     
+// Checa se há algum cartão próximo do módulo RFID
     if (mfrc522_1.PICC_IsNewCardPresent() && mfrc522_1.PICC_ReadCardSerial()) {
-      chave8 = "";
+      chave8 = "";// Reseta a chave8
       for (byte i = 0; i < mfrc522_1.uid.size; i++) {
         chave8 += String(mfrc522_1.uid.uidByte[i], HEX);
       }
       Serial.print("Leitor 1 - Chave lida: ");
       Serial.println(chave8);
 
+// Compara a chave lida com as chaves salvas
       if(chave8 == chave1){
         String frase1 = nome1 + " entrou!";
         Serial.println(frase1);
-        porta1.write(0);
-        printLocalTime(nome1);
-        client.publish("Pedro_IoT/feeds/entrousaiu", frase1.c_str());
+        porta1.write(0);// Abre a porta
+        printLocalTime(frase1);// Registra no arquivo interno a hora de entrada ou saída
+        client.publish("Pedro_IoT/feeds/entrousaiu", frase1.c_str());// Manda a frase ao MQQT
         delay(5000);
       }
       else if(chave8 == chave2){
         String frase2 = nome2 + " entrou!";
         Serial.println(frase2);
         porta1.write(0);
-        printLocalTime(nome2);
+        printLocalTime(frase2);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase2.c_str());
         delay(5000);
       }
@@ -379,7 +390,7 @@ void loop(){
         String frase3 = nome3 + " entrou!";
         Serial.println(frase3);
         porta1.write(0);
-        printLocalTime(nome3);
+        printLocalTime(frase3);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase3.c_str());
         delay(5000);
       }
@@ -387,17 +398,19 @@ void loop(){
         String frase4 = nome4 + " entrou!";
         Serial.println(frase4);
         porta1.write(0);
-        printLocalTime(nome4);
+        printLocalTime(frase4);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase4.c_str());
         delay(5000);
       }
+// Se não houver nenhuma chave compátivel imprime acesso negado e manda para o MQQT
       else{
         Serial.println("Acesso negado!");
         client.publish("Pedro_IoT/feeds/entrousaiu", "Tentativa de entrada!");
       }
       mfrc522_1.PICC_HaltA();  // Interrompe a comunicação com o cartão
-      porta1.write(180);
+      porta1.write(180);// Fecha a porta se estiver aberta
     }
+// Segue exatamente a mesma lógica do leitor 1 pórem imprime "Saiu!" ao invés de "Entrou!"
     if (mfrc522_2.PICC_IsNewCardPresent() && mfrc522_2.PICC_ReadCardSerial()) {
       chave9 = "";
       for (byte i = 0; i < mfrc522_2.uid.size; i++) {
@@ -407,18 +420,18 @@ void loop(){
       Serial.println(chave9);
 
       if(chave9 == chave1){
-        String frase3 = nome1 + " saiu!";
-        Serial.println(frase3);
+        String frase1 = nome1 + " saiu!";
+        Serial.println(frase1);
         porta1.write(0);
-        printLocalTime(nome1);
-        client.publish("Pedro_IoT/feeds/entrousaiu", frase3.c_str());
+        printLocalTime(frase1);
+        client.publish("Pedro_IoT/feeds/entrousaiu", frase1.c_str());
         delay(5000);
       }
       else if(chave9 == chave2){
         String frase2 = nome2 + " saiu!";
         Serial.println(frase2);
         porta1.write(0);
-        printLocalTime(nome2);
+        printLocalTime(frase2);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase2.c_str());
         delay(5000);
       }
@@ -426,7 +439,7 @@ void loop(){
         String frase3 = nome3 + " saiu!";
         Serial.println(frase3);
         porta1.write(0);
-        printLocalTime(nome3);
+        printLocalTime(frase3);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase3.c_str());
         delay(5000);
       }
@@ -434,7 +447,7 @@ void loop(){
         String frase4 = nome4 + " saiu!";
         Serial.println(frase4);
         porta1.write(0);
-        printLocalTime(nome4);
+        printLocalTime(frase4);
         client.publish("Pedro_IoT/feeds/entrousaiu", frase4.c_str());
         delay(5000);
       }
@@ -446,6 +459,7 @@ void loop(){
       porta1.write(180);
     }
   }
+// Se não conseguir se conectar ao WiFi apaga os dois leds de controle
   else if(WiFi.status() != WL_CONNECTED){
     digitalWrite(LED_WIFI, LOW);
     digitalWrite(LED_ADA, LOW);
